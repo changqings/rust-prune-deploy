@@ -11,14 +11,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let deployments: Api<Deployment> = Api::namespaced(kc.clone(), ns_all);
 
-    let list_params: ListParams = ListParams::default().labels("app=gpu-tmp");
+    let list_params: ListParams = ListParams::default().labels("cicd_env=canary");
     let dp_list = deployments.list(&list_params).await?;
 
     for deploy in dp_list {
-            println!("handler {},{}", deploy.metadata().name.as_ref().unwrap(),deploy.metadata().namespace.as_ref().unwrap());
         if check_deploy_status(&deploy) != "True".to_string() {
-            let dc = Api::namespaced(kc.clone(), deploy.metadata().namespace.as_ref().unwrap());
-            delete_deploy(dc, deploy).unwrap_or_else(|f| println!("delete deploy error {}",f)).await;
+            delete_deploy(kc.clone(), deploy).unwrap_or_else(|f| println!("delete deploy error {}",f)).await;
         }
     }
 
@@ -29,7 +27,7 @@ fn check_deploy_status(d: &Deployment) -> String {
     if let Some(k) = &d.status {
         if let Some(v) = &k.conditions {
             for m in v {
-                if m.type_ != "Available" {
+                if m.type_ == "Available" {
                     return m.status.clone();
                 }
             }
@@ -39,15 +37,16 @@ fn check_deploy_status(d: &Deployment) -> String {
     return "Notok".to_string();
 }
 
-async fn delete_deploy(dc:Api<Deployment>, d: Deployment) -> Result<(), Box<dyn std::error::Error>> {
-    let dp: DeleteParams = DeleteParams::default();
+async fn delete_deploy(kc:Client , d: Deployment) -> Result<(), kube::Error> {
     let name: &str = d.metadata().name.as_ref().unwrap();
     let ns: &str = d.metadata().namespace.as_ref().unwrap();
 
-    dc.delete(name, &dp)
-        .map_ok(|_o| println!("delete {}.{} ok", name, ns))
-        .map_err(|e| { eprintln!("delete {},{} err {}", name, ns, e);e})
-        .await?;
+    let dc: Api<Deployment> = Api::namespaced(kc.clone(),ns);
+    let dp: DeleteParams = DeleteParams::default();
+
+    dc.delete(name, &dp).await?
+        .map_left(|o| println!("deleting {}.{} {:?} ", name, ns, o))
+        .map_right(|s|  println!("deleted {},{} {:?}", name, ns,s.status.unwrap()));
 
     Ok(())
 }
