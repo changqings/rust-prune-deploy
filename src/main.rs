@@ -80,6 +80,7 @@ async fn send_wechat_msg(
 
     if let Some(e) = err_json {
         eprintln!("Error: prune deploy {}.{} error:{:?}", name, ns, e);
+        return Ok(());
     };
 
     let reqc = reqClient::new();
