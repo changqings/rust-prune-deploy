@@ -18,11 +18,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let list_params: ListParams = ListParams::default().labels("cicd_env=canary");
     let dp_list = deployments.list(&list_params).await?;
 
-    for deploy in dp_list {
-        if check_deploy_status(&deploy) != "True".to_string() {
+    for deploy in &dp_list {
+        if check_deploy_status(deploy) != "True" {
             // delete_deploy(kc.clone(), deploy).unwrap_or_else(|f| println!("delete deploy error {}",f)).await;
-            let err = delete_deploy(kc.clone(), &deploy).await;
-            send_wechat_msg(&deploy, addr.clone(), err).await?;
+            let err = delete_deploy(kc.clone(), deploy).await;
+            send_wechat_msg(deploy, addr.clone(), err).await?;
         }
     }
 
@@ -34,13 +34,13 @@ fn check_deploy_status(d: &Deployment) -> String {
         if let Some(v) = &k.conditions {
             for m in v {
                 if m.type_ == "Available" {
-                    return m.status.clone();
+                    return m.status.to_owned();
                 }
             }
         }
     }
 
-    return "Notok".to_string();
+    return String::new();
 }
 
 async fn send_wechat_msg(
@@ -107,7 +107,7 @@ async fn delete_deploy(kc: Client, d: &Deployment) -> Result<(), kube::Error> {
     let name: &str = d.metadata().name.as_ref().unwrap();
     let ns: &str = d.metadata().namespace.as_ref().unwrap();
 
-    let dc: Api<Deployment> = Api::namespaced(kc.clone(), ns);
+    let dc: Api<Deployment> = Api::namespaced(kc, ns);
     let dp: DeleteParams = DeleteParams::default();
 
     dc.delete(name, &dp)
