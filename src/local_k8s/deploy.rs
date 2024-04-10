@@ -1,4 +1,5 @@
 use k8s_openapi::api::apps::v1::Deployment;
+use k8s_openapi::api::core::v1::Namespace;
 use k8s_openapi::Metadata;
 use kube::api::{Api, DeleteParams, ListParams};
 use kube::Client;
@@ -7,23 +8,37 @@ use reqwest::Client as reqClient;
 
 use serde_json::Value;
 
-#[tokio::main]
-pub async fn exec_delete_unhealthy_deploy() -> anyhow::Result<()> {
-    let client: Client = Client::try_default().await?;
-    let webhook_url = "some_sendmsg_url";
-    let deployments: Api<Deployment> = Api::namespaced(client.clone(), "");
+pub async fn exec_delete_unhealthy_deploy(
+    client: Client,
+    deploy_labels: &str,
+    webhook_url: &str,
+) -> anyhow::Result<()> {
+    for ns in get_all_ns(client.clone()).await? {
+        // !!this api resource is namespaced scoped, this api resources will only work on scoped ns
+        let deployments: Api<Deployment> = Api::namespaced(client.clone(), ns.as_str());
+        let list_params: ListParams = ListParams::default().labels(deploy_labels);
+        let dp_list = deployments.list(&list_params).await?;
 
-    let list_params: ListParams = ListParams::default().labels("cicd_env=canary");
-    let dp_list = deployments.list(&list_params).await?;
-
-    for deploy in &dp_list {
-        if check_deploy_status(deploy) != "True" {
-            let err = delete_deploy(deploy, &deployments).await;
-            send_wechat_msg(deploy, webhook_url, err).await?;
+        for deploy in &dp_list {
+            if check_deploy_status(deploy) != "True" {
+                let err = delete_deploy(deploy, &deployments).await;
+                send_wechat_msg(deploy, webhook_url, err).await?;
+            }
         }
     }
 
     Ok(())
+}
+
+async fn get_all_ns(client: Client) -> anyhow::Result<Vec<String>> {
+    let nss: Api<Namespace> = Api::all(client.clone());
+    let ns_list = nss.list_metadata(&ListParams::default()).await?;
+    let mut ns_vec = Vec::new();
+    for ns in ns_list {
+        ns_vec.push(ns.metadata.name.unwrap());
+    }
+
+    Ok(ns_vec)
 }
 
 fn check_deploy_status(d: &Deployment) -> String {
@@ -47,6 +62,10 @@ async fn send_wechat_msg(
 ) -> Result<(), reqwest::Error> {
     let name = deploy.metadata.name.as_ref().unwrap();
     let ns = deploy.metadata.namespace.as_ref().unwrap();
+    if webhok_url == "some_sendmsg_url" {
+        println!("send webhook, msg= delete deployment {}/{}", name, ns);
+        return Ok(());
+    }
 
     let (post_body, err_json) = match err {
         Ok(_) => (
@@ -107,7 +126,8 @@ async fn delete_deploy(
     let name = deploy.metadata().name.as_ref().unwrap();
     let ns = deploy.metadata().namespace.as_ref().unwrap();
 
-    let dp = DeleteParams::default();
+    let mut dp = DeleteParams::default();
+    dp.dry_run = false;
 
     deploy_api
         .delete(name, &dp)
