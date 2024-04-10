@@ -126,8 +126,7 @@ async fn delete_deploy(
     let name = deploy.metadata().name.as_ref().unwrap();
     let ns = deploy.metadata().namespace.as_ref().unwrap();
 
-    let mut dp = DeleteParams::default();
-    dp.dry_run = false;
+    let dp = DeleteParams::default();
 
     deploy_api
         .delete(name, &dp)
